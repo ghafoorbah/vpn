@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>VPN Manager</title>
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: #0b0f19; color: #f8fafc; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 20px; }
+    .header { width: 100%; max-width: 440px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid #1e293b; }
+    .header h1 { font-size: 20px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 8px; }
+    .refresh-btn { background: #1e293b; border: 1px solid #334155; color: #94a3b8; padding: 8px 14px; border-radius: 10px; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+    .refresh-btn:active { transform: scale(0.96); }
+    .container { width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 12px; }
+    .server-card { background: #131b2e; border: 1px solid #1e293b; border-radius: 16px; padding: 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden; }
+    .server-card:active { transform: scale(0.98); background: #1a243d; border-color: #38bdf8; }
+    .server-info { display: flex; flex-direction: column; gap: 4px; }
+    .server-name { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .server-sub { font-size: 12px; color: #64748b; direction: ltr; text-align: right; }
+    .connect-badge { background: #0284c7; color: #ffffff; padding: 8px 14px; border-radius: 12px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
+    .loader { margin: 40px auto; width: 40px; height: 40px; border: 3px solid #1e293b; border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status-msg { text-align: center; color: #94a3b8; font-size: 14px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>🛡️ سرورهای strongSwan</h1>
+    <button class="refresh-btn" onclick="fetchServers()">🔄 تازه‌سازی</button>
+  </div>
+
+  <div class="container" id="list">
+    <div class="loader" id="loader"></div>
+    <div class="status-msg" id="msg">در حال دریافت سریع‌ترین سرورها...</div>
+  </div>
+
+  <script>
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzJffnxbOYdTzROeUC7cMaRKsgbwBwqrfLHsAWf29dTAllP0RIQhL2mISqNBYrA2Vxe/exec?refresh=1";
+
+    const flags = {
+      'SG': '🇸🇬', 'US': '🇺🇸', 'GB': '🇬🇧', 'DE': '🇩🇪',
+      'NL': '🇳🇱', 'CA': '🇨🇦', 'JP': '🇯🇵', 'AE': '🇦🇪'
+    };
+
+    async function fetchServers() {
+      const list = document.getElementById("list");
+      list.innerHTML = '<div class="loader"></div><div class="status-msg">در حال ارتباط با سرور...</div>';
+
+      try {
+        const resp = await fetch(SCRIPT_URL);
+        const data = await resp.json();
+
+        if (data.status === "success" && data.servers && data.servers.length > 0) {
+          renderServers(data.servers);
+        } else {
+          list.innerHTML = '<div class="status-msg">❌ هیچ سرور فعالی یافت نشد!</div>';
+        }
+      } catch (err) {
+        list.innerHTML = `<div class="status-msg">❌ خطا در برقراری ارتباط:<br>${err.message}</div>`;
+      }
+    }
+
+    function renderServers(servers) {
+      const list = document.getElementById("list");
+      list.innerHTML = "";
+
+      // انتخاب حداکثر ۶ سرور برتر
+      servers.slice(0, 8).forEach((s, idx) => {
+        const flag = flags[s.country] || "🌐";
+        const cityName = s.city || s.location || "Unknown";
+        const card = document.createElement("div");
+        card.className = "server-card";
+        card.onclick = () => openInStrongswan(s, idx + 1);
+
+        card.innerHTML = `
+          <div class="server-info">
+            <div class="server-name">${flag} ${cityName} #${idx + 1}</div>
+            <div class="server-sub">${s.ip || s.server_address}</div>
+          </div>
+          <div class="connect-badge">⚡ اتصال</div>
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    function openInStrongswan(s, rank) {
+      // ساخت کانفیگ استاندارد strongSwan (.sswan)
+      const sswanConfig = {
+        "uuid": crypto.randomUUID ? crypto.randomUUID() : "vpn-" + Date.now(),
+        "name": `#${rank} Hotspot ${s.city || s.country}`,
+        "type": "ikev2-eap",
+        "remote": {
+          "addr": s.server_address || s.ip,
+          "id": s.remote_id || s.server_address || s.ip
+        },
+        "local": {
+          "eap_id": s.username,
+          "shared_secret": s.password
+        }
+      };
+
+      const jsonStr = JSON.stringify(sswanConfig, null, 2);
+      
+      // ساخت فایل دانلودی با MIME اختصاصی strongSwan
+      const blob = new Blob([jsonStr], { type: "application/vnd.strongswan.profile" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `hotspot_${(s.city || "server").toLowerCase()}.sswan`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // بارگذاری اولیه هنگام باز شدن صفحه
+    fetchServers();
+  </script>
+</body>
+</html>
